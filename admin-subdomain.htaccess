@@ -1,0 +1,14 @@
+# Deployment note: this file is NOT part of the Next.js build output.
+# It does not go in public_html (panelook.lk).
+# Upload the exact same contents of the `out/` folder to the admin.panelook.lk
+# document root as you do for panelook.lk, then place this file there too,
+# renamed to exactly ".htaccess" (note the leading dot).
+#
+# Effect: visiting https://admin.panelook.lk/ redirects to /admin/, and the
+# app's own AdminLayout client-side auth check takes it from there —
+# no session -> bounced to /admin/login, valid session -> dashboard shown.
+# Every other admin.panelook.lk/* path (assets, /admin/products, etc.)
+# is untouched and serves normally.
+
+RewriteEngine On
+RewriteRule ^$ /admin/ [R=302,L]

@@ -1,0 +1,48 @@
+# Disable directory browsing completely
+Options -Indexes
+
+# Set default directory index files
+DirectoryIndex index.html index.php
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Security headers
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+  # If an existing file exists, serve it directly
+  RewriteCond %{REQUEST_FILENAME} -f
+  RewriteRule ^ - [L]
+
+  # If directory with index.html exists, serve it
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteCond %{DOCUMENT_ROOT}/$1/index.html -f
+  RewriteRule ^(.*)/?$ $1/index.html [L]
+
+  # Dynamic Product Route Fallback:
+  # When a new product is created in Admin, its static HTML folder may not exist on disk yet.
+  # Automatically rewrite any /product/<slug> request to /product/index.html so the client loads it dynamically!
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^product/([^/]+)/?$ product/index.html [L,QSA]
+
+  # Dynamic Account Orders Fallback
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^account/orders/([^/]+)/?$ account/orders/view/index.html [L,QSA]
+
+  # If requested filename.html exists, rewrite to it
+  RewriteCond %{REQUEST_FILENAME}.html -f
+  RewriteRule ^(.*)$ $1.html [L]
+
+  # Fallback to root index.html for client-side routing
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^ index.html [L]
+
+  # 404 error document
+  ErrorDocument 404 /404.html
+</IfModule>
