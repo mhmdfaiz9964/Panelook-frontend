@@ -2,7 +2,14 @@
 
 import React, { useEffect, useState } from 'react';
 import { AdminLayout } from '@/components/admin/AdminLayout';
-import { adminFetch, parseApiResponse, adminUploadImage } from '@/lib/adminApi';
+import {
+  adminFetch,
+  parseApiResponse,
+  adminUploadImage,
+  downloadBulkProductSample,
+  uploadBulkProducts,
+  BulkUploadReport,
+} from '@/lib/adminApi';
 import { MASTER_SCREEN_SIZES } from '@/lib/constants';
 import {
   Plus,
@@ -20,6 +27,13 @@ import {
   Star,
   Sparkles,
   ExternalLink,
+  FileSpreadsheet,
+  Download,
+  AlertTriangle,
+  CheckCircle2,
+  RefreshCw,
+  FileText,
+  HelpCircle,
 } from 'lucide-react';
 
 interface Category { id: number; name: string; }
@@ -104,6 +118,16 @@ export default function AdminProductsPage() {
   const [formError, setFormError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [showPreview, setShowPreview] = useState(false);
+
+  // Bulk Upload State
+  const [bulkModalOpen, setBulkModalOpen] = useState(false);
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkUpdateExisting, setBulkUpdateExisting] = useState(true);
+  const [bulkDownloadingSample, setBulkDownloadingSample] = useState(false);
+  const [bulkUploading, setBulkUploading] = useState(false);
+  const [bulkReport, setBulkReport] = useState<BulkUploadReport | null>(null);
+  const [bulkError, setBulkError] = useState('');
+  const [isDragging, setIsDragging] = useState(false);
 
   // Chip inputs temporary state
   const [newModel, setNewModel] = useState('');
@@ -408,19 +432,74 @@ export default function AdminProductsPage() {
   const selectedBrand = brands.find((b) => String(b.id) === String(form.brand_id));
   const selectedType = productTypes.find((pt) => String(pt.id) === String(form.product_type_id));
 
+  const handleDownloadSample = async () => {
+    setBulkDownloadingSample(true);
+    setBulkError('');
+    const res = await downloadBulkProductSample();
+    if (!res.success) {
+      setBulkError(res.message || 'Failed to download sample Excel file.');
+    }
+    setBulkDownloadingSample(false);
+  };
+
+  const handleBulkUploadSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bulkFile) {
+      setBulkError('Please choose or drop an Excel (.xlsx, .xls) or CSV file first.');
+      return;
+    }
+
+    setBulkUploading(true);
+    setBulkError('');
+    try {
+      const res = await uploadBulkProducts(bulkFile, bulkUpdateExisting);
+      if (res.success && res.data) {
+        setBulkReport(res.data);
+        loadProducts(search);
+      } else {
+        setBulkError(res.message || 'Bulk upload failed. Please verify your spreadsheet.');
+      }
+    } catch (err: any) {
+      setBulkError(err.message || 'Network error occurred during bulk upload.');
+    }
+    setBulkUploading(false);
+  };
+
+  const resetBulkModal = () => {
+    setBulkModalOpen(false);
+    setBulkFile(null);
+    setBulkReport(null);
+    setBulkError('');
+    setIsDragging(false);
+  };
+
   return (
     <AdminLayout title="Products">
       <div className="flex items-center justify-between mb-5 gap-4 flex-wrap">
         <div>
           <p className="text-sm text-[#66708A] font-medium">Manage your laptop displays, MacBook panels, and screens.</p>
         </div>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-1.5 bg-[#5425F5] hover:bg-[#6D3CFF] text-white font-semibold text-[13px] px-4 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          Add Product
-        </button>
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => {
+              setBulkReport(null);
+              setBulkFile(null);
+              setBulkError('');
+              setBulkModalOpen(true);
+            }}
+            className="flex items-center gap-2 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 font-bold text-[13px] px-4 py-2.5 rounded-lg shadow-2xs transition-all cursor-pointer"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            Bulk Upload (Excel)
+          </button>
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-1.5 bg-[#5425F5] hover:bg-[#6D3CFF] text-white font-semibold text-[13px] px-4 py-2.5 rounded-lg shadow-xs transition-colors cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            Add Product
+          </button>
+        </div>
       </div>
 
       <div className="mb-4 relative max-w-sm">
@@ -993,6 +1072,316 @@ export default function AdminProductsPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* BULK UPLOAD EXCEL MODAL */}
+      {bulkModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-xs">
+          <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh] animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center shadow-xs">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[#17203D] text-[16px]">Bulk Product Upload</h3>
+                  <p className="text-xs text-[#66708A]">Import multiple laptop display products via Excel or CSV</p>
+                </div>
+              </div>
+              <button
+                onClick={resetBulkModal}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-5 flex-1">
+              {bulkError && (
+                <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-xs flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{bulkError}</span>
+                </div>
+              )}
+
+              {/* VIEW 1: UPLOAD & DOWNLOAD FORM */}
+              {!bulkReport ? (
+                <form onSubmit={handleBulkUploadSubmit} className="space-y-5">
+                  {/* Step 1: Download Sample Card */}
+                  <div className="p-4.5 bg-linear-to-r from-emerald-50 via-teal-50 to-cyan-50 border border-emerald-200/80 rounded-xl">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="bg-emerald-600 text-white font-bold text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Step 1</span>
+                          <h4 className="font-bold text-slate-900 text-sm">Download Pre-Formatted Excel Template</h4>
+                        </div>
+                        <p className="text-xs text-slate-600 mt-1">
+                          Features auto-adjusted column widths, distinct color-coded headers (Required, Specs, Compatibility), instructions, and sample rows.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleDownloadSample}
+                        disabled={bulkDownloadingSample}
+                        className="shrink-0 flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        {bulkDownloadingSample ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-3.5 h-3.5" />
+                            Download Sample Excel (.xlsx)
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Step 2: File Upload Zone */}
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="bg-[#5425F5] text-white font-bold text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider">Step 2</span>
+                      <h4 className="font-bold text-slate-900 text-sm">Upload Your Excel or CSV File</h4>
+                    </div>
+
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragging(true);
+                      }}
+                      onDragLeave={() => setIsDragging(false)}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setIsDragging(false);
+                        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                          setBulkFile(e.dataTransfer.files[0]);
+                          setBulkError('');
+                        }
+                      }}
+                      className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
+                        isDragging
+                          ? 'border-[#5425F5] bg-purple-50/50'
+                          : bulkFile
+                          ? 'border-emerald-300 bg-emerald-50/30'
+                          : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                        onChange={(e) => {
+                          if (e.target.files && e.target.files.length > 0) {
+                            setBulkFile(e.target.files[0]);
+                            setBulkError('');
+                          }
+                        }}
+                      />
+
+                      {bulkFile ? (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                            <CheckCircle2 className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900 text-sm">{bulkFile.name}</p>
+                            <p className="text-xs text-slate-500">{(bulkFile.size / 1024).toFixed(1)} KB &bull; Ready for upload</p>
+                          </div>
+                          <span className="text-[11px] text-emerald-700 font-semibold underline mt-1">Click or drag another file to replace</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2">
+                          <div className="w-12 h-12 rounded-xl bg-purple-100 text-[#5425F5] flex items-center justify-center">
+                            <Upload className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <p className="font-bold text-slate-900 text-sm">Click to select or drag and drop spreadsheet here</p>
+                            <p className="text-xs text-slate-500 mt-0.5">Supports Microsoft Excel (.xlsx, .xls) and CSV files</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Options */}
+                  <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-xl space-y-2">
+                    <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={bulkUpdateExisting}
+                        onChange={(e) => setBulkUpdateExisting(e.target.checked)}
+                        className="w-4 h-4 rounded text-[#5425F5] focus:ring-[#5425F5] border-slate-300 mt-0.5 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <span className="font-bold text-slate-800">Update existing products if SKU matches</span>
+                        <p className="text-slate-500 text-[11px] mt-0.5">
+                          When checked, any product in your database sharing the same SKU will be updated with new prices, stock, models, and specifications. When unchecked, duplicate SKUs are skipped.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Submit Buttons */}
+                  <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={resetBulkModal}
+                      className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!bulkFile || bulkUploading}
+                      className="flex items-center gap-2 bg-[#5425F5] hover:bg-[#6D3CFF] text-white font-bold text-xs px-5 py-2.5 rounded-lg shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {bulkUploading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Reading &amp; Uploading Products...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4" />
+                          Upload &amp; Process Products
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                /* VIEW 2: DETAILED UPLOAD RESULTS & ISSUE BREAKDOWN */
+                <div className="space-y-5">
+                  {/* Summary Banner */}
+                  <div className={`p-4 rounded-xl border flex items-start gap-3.5 ${
+                    bulkReport.skipped_count === 0
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                      : 'bg-amber-50 border-amber-200 text-amber-900'
+                  }`}>
+                    {bulkReport.skipped_count === 0 ? (
+                      <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <h4 className="font-bold text-sm">
+                        {bulkReport.skipped_count === 0
+                          ? 'Bulk Upload Successful!'
+                          : 'Bulk Upload Completed with Warnings'}
+                      </h4>
+                      <p className="text-xs opacity-90 mt-0.5">
+                        {bulkReport.created_count + bulkReport.updated_count} product(s) successfully processed into catalog.
+                        {bulkReport.skipped_count > 0 && ` ${bulkReport.skipped_count} row(s) were skipped due to validation issues.`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 4 Stat Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                      <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Rows</p>
+                      <p className="text-xl font-extrabold text-slate-800 mt-0.5">{bulkReport.total_rows}</p>
+                    </div>
+                    <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                      <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Created</p>
+                      <p className="text-xl font-extrabold text-emerald-700 mt-0.5">{bulkReport.created_count}</p>
+                    </div>
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-center">
+                      <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Updated</p>
+                      <p className="text-xl font-extrabold text-blue-700 mt-0.5">{bulkReport.updated_count}</p>
+                    </div>
+                    <div className={`p-3 rounded-xl border text-center ${
+                      bulkReport.skipped_count > 0
+                        ? 'bg-rose-50 border-rose-200 text-rose-700'
+                        : 'bg-slate-50 border-slate-200 text-slate-400'
+                    }`}>
+                      <p className="text-[11px] font-bold uppercase tracking-wider">Skipped / Issues</p>
+                      <p className="text-xl font-extrabold mt-0.5">{bulkReport.skipped_count}</p>
+                    </div>
+                  </div>
+
+                  {/* Error Breakdown Table */}
+                  {bulkReport.errors && bulkReport.errors.length > 0 ? (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          Row-by-Row Issue Details ({bulkReport.errors.length})
+                        </h4>
+                        <span className="text-[11px] text-slate-500">Correct these in your Excel file and re-upload</span>
+                      </div>
+
+                      <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                        <div className="max-h-60 overflow-y-auto">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0 border-b border-slate-200">
+                              <tr>
+                                <th className="px-3 py-2 text-center w-16">Row #</th>
+                                <th className="px-3 py-2">SKU</th>
+                                <th className="px-3 py-2">Product Name</th>
+                                <th className="px-3 py-2">Column / Field</th>
+                                <th className="px-3 py-2">Issue Reason</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 bg-white">
+                              {bulkReport.errors.map((err, idx) => (
+                                <tr key={idx} className="hover:bg-rose-50/40 transition-colors">
+                                  <td className="px-3 py-2.5 text-center font-bold">
+                                    <span className="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-md font-mono text-[11px]">
+                                      Row {err.row}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-2.5 font-mono text-slate-700">{err.sku}</td>
+                                  <td className="px-3 py-2.5 text-slate-800 max-w-[150px] truncate" title={err.name}>
+                                    {err.name}
+                                  </td>
+                                  <td className="px-3 py-2.5 font-semibold text-slate-700">{err.field}</td>
+                                  <td className="px-3 py-2.5 text-rose-700 font-medium">{err.message}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-emerald-50/60 border border-emerald-100 rounded-xl text-center">
+                      <p className="text-xs font-semibold text-emerald-800">
+                        100% of products were parsed, validated, and saved cleanly!
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Bottom Action Buttons */}
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBulkReport(null);
+                        setBulkFile(null);
+                        setBulkError('');
+                      }}
+                      className="flex items-center gap-1.5 px-4 py-2 border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-xs rounded-lg transition-colors cursor-pointer"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      Upload Another Spreadsheet
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetBulkModal}
+                      className="bg-[#5425F5] hover:bg-[#6D3CFF] text-white font-bold text-xs px-5 py-2.5 rounded-lg shadow-sm transition-all cursor-pointer"
+                    >
+                      Done &amp; View Catalog
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

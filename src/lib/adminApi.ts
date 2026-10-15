@@ -258,3 +258,96 @@ export async function getSystemStatus(): Promise<{
   }
 }
 
+export interface BulkUploadErrorItem {
+  row: number;
+  sku: string;
+  name: string;
+  field: string;
+  message: string;
+}
+
+export interface BulkUploadReport {
+  total_rows: number;
+  created_count: number;
+  updated_count: number;
+  skipped_count: number;
+  errors: BulkUploadErrorItem[];
+}
+
+/**
+ * Download sample Excel file for bulk product uploads with auto column widths and styled headers
+ */
+export async function downloadBulkProductSample(): Promise<{ success: boolean; message?: string }> {
+  try {
+    const res = await adminFetch('/admin/products/bulk/sample', {
+      method: 'GET',
+    });
+
+    if (!res.ok) {
+      const parsed = await parseApiResponse(res);
+      return { success: false, message: parsed.message || 'Failed to download sample file.' };
+    }
+
+    const contentType = res.headers.get('content-type') || '';
+    const disposition = res.headers.get('content-disposition') || '';
+    let filename = 'panelook_product_upload_sample.xlsx';
+
+    const filenameMatch = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i);
+    if (filenameMatch && filenameMatch[1]) {
+      filename = filenameMatch[1].replace(/['"]/g, '').trim();
+    } else if (contentType.includes('csv')) {
+      filename = 'panelook_product_upload_sample.csv';
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, message: err?.message || 'Download error' };
+  }
+}
+
+/**
+ * Upload bulk product Excel or CSV file
+ */
+export async function uploadBulkProducts(
+  file: File,
+  updateExisting: boolean = true
+): Promise<{
+  success: boolean;
+  message?: string;
+  data?: BulkUploadReport;
+}> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('update_existing', updateExisting ? '1' : '0');
+
+  try {
+    const res = await adminFetch('/admin/products/bulk/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    const parsed = await parseApiResponse<BulkUploadReport>(res);
+    return {
+      success: parsed.success,
+      message: parsed.message,
+      data: parsed.data,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Failed to upload spreadsheet',
+    };
+  }
+}
+
+
